@@ -11,11 +11,17 @@ win:
   icon: assets/llamarig.ico
   target:
     - portable
-  # 产物名带版本号：Llama-Rig-0.7.0.exe。
+  # 产物名带版本号：Llama-Rig-0.8.1.exe。
   # CI(.github/workflows/release.yml) 从 package.json 的 version 派生同名文件，
-  # 两边同源 —— 以后改版本只需要改 package.json 一处。
+  # 两边同源 —— 以后改版本只需要改 package.json 一处（用 npm version 连 lock 一起改）。
   artifactName: Llama-Rig-${version}.${ext}
   forceCodeSigning: false
+  # 没有配置代码签名证书，产物是未签名的（Authenticode: NotSigned）。
+  # 影响：用户首次运行会看到 SmartScreen 蓝色警告，需手动点「仍要运行」。
+  # 要消除得买代码签名证书（EV 证书立即生效，OV 证书需要积累声誉）。
 asar: true
+# 打包白名单见上面的 files —— 注意 desktop/** 里含有 desktop/configs/（随包示例预设），
+# 它是首次运行播种的来源，不能被排除；同时它必须在 git 里（见 .gitignore 的根锚定规则），
+# 否则 CI 从仓库克隆时拿不到它，用户装完就是零预设。
 compression: normal
 nodeGypRebuild: false

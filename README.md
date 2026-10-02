@@ -35,11 +35,14 @@
 
 ## 下载
 
-首次发布包会放在 GitHub Releases 页面：
+发布包放在 GitHub Releases 页面：
 
-[打开 Releases](https://github.com/Qiao-920/llama-cpp-desktop/releases)
+[打开 Releases](https://github.com/Ye-wtw/Llama-Rig/releases)
 
-下载 `Llama-Rig-<版本号>.exe`（如 `Llama-Rig-0.7.0.exe`）后双击运行即可。项目本身不包含模型文件和 llama.cpp 二进制文件，需要你本机已经有可用的 llama.cpp Windows 构建目录。
+下载 `Llama-Rig-<版本号>.exe`（如 `Llama-Rig-0.8.1.exe`）后双击运行即可。项目本身不包含模型文件和 llama.cpp 二进制文件，需要你本机已经有可用的 llama.cpp Windows 构建目录。
+
+> 首次运行会看到 Windows SmartScreen 的蓝色提示（因为安装包没有购买代码签名证书），
+> 点「更多信息」→「仍要运行」即可。
 
 ## 快速开始
 
@@ -48,6 +51,45 @@
 3. 选择你的 GGUF 模型文件。
 4. 保存配置并启动服务。
 5. 使用内置聊天，或把 `http://127.0.0.1:8080/v1` 接入 OpenAI 兼容客户端。
+
+## 数据放在哪（便携版）
+
+这个软件是**完全便携**的：所有数据都生成在 **exe 所在的文件夹**里，
+不写 `%APPDATA%`，也不写注册表。
+
+所以首次双击运行后，你会看到 exe 旁边自动多出文件夹：
+
+```text
+你放 exe 的文件夹\
+├── Llama-Rig-0.8.1.exe     ← 程序本体
+├── configs\                ← 【预设目录】首次运行会自动放入一个示例预设
+│   └── 示例-通用参数.config.toml
+├── config.toml             ← 主设置（llama.cpp 路径、模型路径等），保存设置后生成
+├── desktop-state.json      ← 窗口位置、界面状态，运行后生成
+└── userdata\               ← 界面缓存（浏览器内核的 profile，删掉会自动重建）
+```
+
+### 预设存放位置与用法
+
+**预设就存在 exe 旁边的 `configs\` 文件夹里**，一个预设对应一个 `.config.toml` 文件。
+
+| 你想做的事 | 怎么做 |
+| --- | --- |
+| 用自带示例 | 首次运行后列表里就有 `示例-通用参数`，可直接套用 |
+| 自己存一个 | 在界面里调好参数后保存为预设，文件会出现在 `configs\` |
+| 备份预设 | 复制整个 `configs\` 文件夹 |
+| 换台机器 / 重装 | 把 `configs\` 拷到新位置 exe 旁边即可 |
+| 收下别人的预设 | 让对方把 `.config.toml` 发给你，放进 `configs\` |
+
+关于自带的那个示例预设，有一点值得说明：它**只含参数、不含路径**
+（`model` 和 `llama_server_path` 都是空的）。空路径的含义是「沿用你当前的选择」，
+不会把你已经选好的模型或 llama.cpp 路径清空 —— 所以它可以安全地当作调节参数的起点。
+
+### 想换地方放 / 想清理
+
+- **整个文件夹可以随意移动、复制到 U 盘**，因为数据跟着 exe 走，路径不写死。
+- ⚠️ **删除 `configs\` 会连你的预设一起删掉**，删之前先备份。
+- `userdata\` 可以随时删除，下次启动会自动重建（只是会丢失界面缓存）。
 
 ## 开发运行
 
@@ -77,10 +119,16 @@ npm run dist
 ## 项目结构
 
 ```text
-assets/      图标和托盘图标
-desktop/     Electron 主进程和预加载脚本
-renderer/    桌面端界面
-scripts/     图标生成脚本
+assets/            图标和托盘图标
+desktop/           Electron 主进程、预加载脚本与纯逻辑模块
+  configs/         随包示例预设（首次运行时播种到用户目录）
+  lib/             预设策略、日志管线、运行期策略等纯逻辑
+renderer/          桌面端界面
+test/              测试（node --test）
+tools/             界面文案扫描工具
+spec/ docs/        设计规格与验收记录
+prototype/         早期界面原型（静态 HTML，供对照）
+scripts/           图标生成脚本
 ```
 
 ## 开源说明
