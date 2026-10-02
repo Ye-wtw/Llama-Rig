@@ -264,7 +264,9 @@ test('引擎不支持的开关在界面上置灰（对应验收 #7/#8）', () =>
 })
 
 test('引擎不兼容开关的约束由代码兜底，不依赖预设文件写死', () => {
-  assert.match(mainSource, /sanitizeEngineParams\(normalizeConfig\(parseToml\(raw\)\)\)/, 'readPreset 未做兜底')
+  // readPreset 现在先把 TOML 解析成局部变量 parsed 再走管线，两种写法都要认；
+  // 关键是这条「normalize → sanitize」兜底链不能少。
+  assert.match(mainSource, /sanitizeEngineParams\(normalizeConfig\((?:parseToml\(raw\)|parsed)\)\)/, 'readPreset 未做兜底')
   assert.match(mainSource, /sanitizeEngineParams\(normalizeConfig\(config\)\)/, 'saveConfig 未做兜底')
 })
 
@@ -526,8 +528,14 @@ test('预设读写两端都设了外观防漏（回归：保存预设会把外�
     /\.\.\.\(includeUiPreferences \? \[[\s\S]*?theme_mode[\s\S]*?chat_font[\s\S]*?\] : \[\]\)/.test(mainSource),
     'buildToml 里 theme_mode/chat_font 必须受开关控制，不能无条件写',
   )
+  // readPreset 现在是多行管线：
+  //   parseToml → normalizeConfig → sanitizeEngineParams → stripUiPreferences → restoreEmptyPathFields
+  // 所以不再断言那一行字面量，改断言「管线里确实剥了外观键」。
+  const readPresetStart = mainSource.indexOf('async function readPreset(')
+  assert.ok(readPresetStart >= 0, '没找到 readPreset')
+  const readPresetBody = mainSource.slice(readPresetStart, readPresetStart + 1200)
   assert.ok(
-    mainSource.includes('stripUiPreferences(sanitizeEngineParams(normalizeConfig(parseToml(raw))))'),
+    /stripUiPreferences\(\s*[\s\S]*?sanitizeEngineParams\(normalizeConfig\(parsed\)\)/.test(readPresetBody),
     'readPreset 未剔除外观键',
   )
   assert.ok(rendererSource.includes('preserveUiPreferences(state.config'), 'applyPreset 未保留当前外观')

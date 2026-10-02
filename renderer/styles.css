@@ -2259,16 +2259,35 @@ button {
 }
 
 .toast {
+  /* 顶部靠右。
+     位置试过两次才定下来：
+       右下角 → 正好压在「检查端口 / 停止 / 保存」这排操作按钮上；
+       顶部居中 → 又挡住主区顶部的标签页按钮。
+     靠右只占一条，避开了这两处，且高度不变。 */
+  top: 64px; /* 让开 52px 的顶栏，以及右侧 36px 的窗口控件区 */
   right: 24px;
-  bottom: 24px;
-  max-width: 520px;
+  /* 长提示（例如加载预设后列出变了哪些参数）在窄窗口里也要能完整显示 */
+  max-width: min(560px, calc(100vw - 48px));
   display: none;
-  padding: 12px 14px;
+  padding: 12px 16px;
   line-height: 1.6;
 }
 
 .toast.show {
   display: block;
+  animation: toast-in 160ms ease-out;
+}
+
+/* 从上方轻轻落下，提示「有事发生了」但不抢注意力。 */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .boot {
@@ -4989,6 +5008,72 @@ button {
   line-height: 1.6;
 }
 
+/* 扫描到的引擎列表。
+   引擎可能装在任意路径，所以路径必须显示出来 —— 同一个引擎有多份构建时，
+   路径是唯一能区分「我选的是哪一份」的信息。 */
+.engine-found {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2, transparent);
+}
+
+.engine-found-title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.engine-found-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.engine-found-item:hover {
+  border-color: var(--line);
+}
+
+.engine-found-item.on {
+  border-color: var(--accent, var(--line));
+  background: color-mix(in srgb, var(--accent, #5b8def) 12%, transparent);
+}
+
+.engine-found-name {
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+
+/* 只有同一个引擎存在多份构建时才出现，用来区分「我选的是哪一份」。
+   普通情况下不显示任何路径 —— 绝对路径对普通使用者没有意义。 */
+.engine-found-where {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 「当前用的是哪个引擎」一句话说明，替代过去「只给一条路径」的做法 */
+.engine-status {
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 /* 「高级」页的后端引擎读数：让「预设 → 引擎 → 实际调用的 exe」这条链一眼可见。
    路径很长，必须能截断，否则会把卡片撑破。 */
 /* 整屏渲染失败时的提示条：浮在最上面，不清空既有 DOM。
@@ -5774,4 +5859,22 @@ button {
 .mf-manual:hover {
   background: var(--hover);
   color: var(--ink);
+}
+
+/* 一个引擎都没找到时的引导。
+   面向普通使用者：不复述术语，直接告诉他下一步点哪里。 */
+.engine-empty {
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.engine-empty-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
 }

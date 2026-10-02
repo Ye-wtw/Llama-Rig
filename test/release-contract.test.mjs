@@ -52,13 +52,24 @@ test('workflow release identity follows package and builder configuration', () =
   // CI 不能硬编码文件名（否则每次改版本都要手改 workflow），
   // 而是从 package.json 的 version 派生出与 artifactName 相同的名字。
   assert.match(workflow, /\$package = Get-Content -Raw -LiteralPath package\.json \| ConvertFrom-Json/)
-  assert.match(workflow, /\$exeName = "Llama-Rig-\$\(\$package\.version\)\.exe"/, 'workflow 未从 package.json 派生产物名')
-  assert.match(workflow, /\$exe = "dist\/\$exeName"/)
-  assert.match(workflow, /Get-FileHash -LiteralPath \$exe -Algorithm SHA256/)
-  assert.match(workflow, /"\$\(\$hash\.Hash\)  \$exeName" \| Set-Content -LiteralPath "\$exe\.sha256"/)
+  assert.match(workflow, /\$name = "Llama-Rig-\$version\.\$ext"/, 'workflow 未从 package.json 派生产物名')
+  // 两种形态都要出：便携 exe 与解压 zip。
+  // 解压版是为了绕开「便携版必须往 %TEMP% 解 430 MB，C 盘紧就失败」这个坑，
+  // 少发一个等于把踩坑的用户丢回原地。
+  assert.match(workflow, /foreach \(\$ext in @\('exe', 'zip'\)\)/, 'workflow 未同时处理 exe 与 zip')
+  assert.match(builderConfig, /^\s*-\s*zip\s*$/m, 'electron-builder.yml 未配置 zip 目标')
+  assert.match(workflow, /Get-FileHash -LiteralPath \$path -Algorithm SHA256/)
+  assert.match(workflow, /Set-Content -LiteralPath "\$path\.sha256"/)
+  // 产物缺失必须直接失败：否则会静默发出一个没有校验和的版本。
+  assert.match(workflow, /throw "Release artifact not found/, '产物缺失时 workflow 未报错')
   // 发布资产用版本无关的 glob，避免与版本号脱节
-  assert.match(workflow, /^\s*dist\/Llama-Rig-\*\.exe\s*$/m, 'files 未用版本无关的 glob')
-  assert.match(workflow, /^\s*dist\/Llama-Rig-\*\.exe\.sha256\s*$/m)
+  for (const suffix of ['exe', 'exe.sha256', 'zip', 'zip.sha256']) {
+    assert.match(
+      workflow,
+      new RegExp(`^\\s*dist/Llama-Rig-\\*\\.${escapeRegExp(suffix)}\\s*$`, 'm'),
+      `files 未包含 dist/Llama-Rig-*.${suffix}`,
+    )
+  }
   assert.match(workflow, /generate_release_notes:\s*true/)
 })
 

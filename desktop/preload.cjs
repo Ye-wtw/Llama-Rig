@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld('llamaDesktop', {
   // P0-2: Engine APIs
   engineList: () => ipcRenderer.invoke('llama:engine-list'),
   engineDetect: serverPath => ipcRenderer.invoke('llama:engine-detect', serverPath),
+  // 引擎发现：扫出机器上可用的引擎（用户放哪都行），供界面选择
+  engineRescan: () => ipcRenderer.invoke('llama:engine-rescan'),
   // P1-2: VRAM check
   vramCheck: () => ipcRenderer.invoke('llama:vram-check'),
   // 本地模型清单（顶栏模型折叠菜单）

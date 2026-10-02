@@ -49,22 +49,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build portable exe
+      - name: Build release artifacts
         run: npm run dist
 
-      - name: Generate checksum
+      - name: Generate checksums
         shell: pwsh
         run: |
           # 产物名从 package.json 派生，与 electron-builder.yml 的
           # artifactName: Llama-Rig-${version}.${ext} 保持同一个 source of truth。
+          # 两种形态都要校验和：便携版 exe 与解压版 zip。
+          # 少一个都会让用户下载后无法核对，所以缺任何一个都直接失败。
           $package = Get-Content -Raw -LiteralPath package.json | ConvertFrom-Json
-          $exeName = "Llama-Rig-$($package.version).exe"
-          $exe = "dist/$exeName"
-          if (-not (Test-Path -LiteralPath $exe)) {
-            throw "Portable artifact not found: $exe"
+          $version = $package.version
+          foreach ($ext in @('exe', 'zip')) {
+            $name = "Llama-Rig-$version.$ext"
+            $path = "dist/$name"
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "Release artifact not found: $path"
+            }
+            $hash = Get-FileHash -LiteralPath $path -Algorithm SHA256
+            "$($hash.Hash)  $name" | Set-Content -LiteralPath "$path.sha256" -Encoding ascii
+            Write-Host "checksum: $name -> $($hash.Hash)"
           }
-          $hash = Get-FileHash -LiteralPath $exe -Algorithm SHA256
-          "$($hash.Hash)  $exeName" | Set-Content -LiteralPath "$exe.sha256" -Encoding ascii
 
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
@@ -72,9 +78,18 @@ jobs:
           name: Llama Rig ${{ github.ref_name }}
           generate_release_notes: true
           body: |
-            ## Assets
-            - `Llama-Rig-<version>.exe` —— 免安装便携版（版本号与 tag 一致，取自 package.json）
-            - 同名 `.sha256` 校验文件
+            ## 两种下载，选一个
+
+            | 文件 | 适合谁 |
+            | --- | --- |
+            | `Llama-Rig-<version>.zip` | **解压版（推荐）**：解压到任意有空间的目录，双击里面的 `Llama Rig.exe` 即可。全程不碰系统临时目录 |
+            | `Llama-Rig-<version>.exe` | 便携单文件版：下载即双击。首次运行会把内容解到系统临时目录（约 430 MB，在 C 盘） |
+
+            两个文件内容完全相同，只是分发形态不同。各自附有同名 `.sha256` 校验文件。
+
+            > **C 盘空间紧张就选解压版。** 便携版需要往 `%TEMP%` 写约 430 MB，
+            > C 盘不够时会报 `NSIS Error: Error writing temporary file`，
+            > 这个提示不会告诉你是磁盘满了。解压版没有这个问题。
 
             ## 首次运行会看到 SmartScreen 提示（正常现象，不是病毒）
 
@@ -94,8 +109,12 @@ jobs:
 
             ## 数据放在哪
 
-            完全便携：所有数据生成在 **exe 所在的文件夹**，不写 `%APPDATA%`、不写注册表。
-            首次运行后 exe 旁边会出现：
+            数据和程序放在一起：所有数据生成在 **程序所在文件夹**，不写 `%APPDATA%`、不写注册表。
+
+            - 解压版：就是你解压出来的那个文件夹
+            - 便携版：就是你放 exe 的那个文件夹
+
+            首次运行后旁边会出现：
 
             - `configs\` —— 预设目录（首次运行会放入一个示例预设「示例-通用参数」）
             - `userdata\` —— 界面缓存，可随时删除
@@ -104,11 +123,14 @@ jobs:
             预设就是你自己的文件：备份或换机器时，把 `configs\` 整个拷过去即可。
 
             ## Known limitations
-            - Windows portable executable only. llama.cpp binaries, models, mmproj files, CUDA, and Vulkan are not bundled.
+            - Windows only. llama.cpp binaries, models, mmproj files, CUDA, and Vulkan are not bundled.
             - 未做代码签名，首次运行需要手动通过 SmartScreen 提示。
+            - 便携版首次运行需要系统临时目录有约 430 MB 可用空间（C 盘紧张请改用解压版）。
 
             ## Configuration migration
             - Existing user configuration, history, and runtime state are preserved. No migration is required.
           files: |
             dist/Llama-Rig-*.exe
             dist/Llama-Rig-*.exe.sha256
+            dist/Llama-Rig-*.zip
+            dist/Llama-Rig-*.zip.sha256

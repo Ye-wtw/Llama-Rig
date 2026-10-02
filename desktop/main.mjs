@@ -21,13 +21,20 @@ import {
   ENGINE_DEFINITIONS,
   assertEngineCompatible,
   detectEngineByPath,
+  engineCandidateFromFile,
   engineSupportsFlag,
   extractPresetMetadata,
   getEngineLabel,
   describeUnknownFlags,
+  isEngineServerFile,
+  mergeDiscoveredEngines,
+  pickRecommendedEngine,
+  rankEngineCandidates,
+  recommendEngineIdForModel,
   unknownExtraFlags,
   sanitizeEngineParams,
   stripUiPreferences,
+  restoreEmptyPathFields,
   listPresetNamesFromFiles,
   pickExistingDir,
   pickServerExecutable,
@@ -716,9 +723,17 @@ async function readPreset(name) {
   const filePath = presetFilePath(name)
   if (!existsSync(filePath)) return null
   const raw = await readFile(filePath, 'utf8')
-  // 剔除外观键：旧预设文件里可能残留 theme_mode / chat_font，
-  // 带上它们会在加载预设时把界面外观改掉。
-  return stripUiPreferences(sanitizeEngineParams(normalizeConfig(parseToml(raw))))
+  const parsed = parseToml(raw)
+  // 三件事，顺序不能乱：
+  //   1. normalizeConfig 按「完整配置」补齐各项（含**非空**的默认路径）
+  //   2. sanitizeEngineParams / stripUiPreferences 兜底引擎开关、剔除外观键
+  //   3. restoreEmptyPathFields 把「文件里留空」的路径还原为空
+  // 少了第 3 步，「预设里留空 = 沿用当前」就会失效：第 1 步补出来的默认
+  // 路径会让 applyPresetOverCurrent 以为预设声明了路径，从而覆盖用户的引擎。
+  return restoreEmptyPathFields(
+    stripUiPreferences(sanitizeEngineParams(normalizeConfig(parsed))),
+    parsed,
+  )
 }
 
 async function writePreset(name, config) {
@@ -752,10 +767,213 @@ function modelsBaseDir() {
 // 引擎定义与规则判断在 lib/preset-engine.mjs，这里只负责把它拼成磁盘上的真实路径。
 function resolveEnginePaths() {
   const modelsBase = modelsBaseDir()
-  return ENGINE_DEFINITIONS.map(engine => {
+  const defined = ENGINE_DEFINITIONS.map(engine => {
     const candidate = path.join(modelsBase, ...engine.binary)
     return { ...engine, path: existsSync(candidate) ? candidate : '' }
   })
+  // 固定位置没找到的引擎，用扫描结果补上。
+  // 扫描出错（权限、盘符消失等）不能拖垮这里，最差退回原来的固定布局行为。
+  try {
+    return mergeDiscoveredEngines(defined, discoverEngines())
+  } catch {
+    return defined
+  }
+}
+
+// ---------- 引擎发现 ----------
+//
+// 引擎原先只认 modelsBaseDir 下的固定相对位置（llama.cpp\bin\、kvmem-gui\、prism-llama\），
+// 放到别处就显示「未安装」并禁用 —— 用户明明有引擎，却因为摆放位置不同而选不了。
+// 这里照模型的思路改成**扫出来**：找到就填进列表，用户还能手动指定。
+//
+// 深度与目录数都设上限：引擎常散落在几个盘上，扫全盘会卡住启动。
+const ENGINE_SCAN_MAX_DEPTH = 3
+const ENGINE_SCAN_MAX_DIRS = 600
+
+// 磁盘根目录的兜底扫描深度。
+// 比精确根浅一档：盘符下面什么都可能有，扫深了又慢又没意义，
+// 但 3 层足够覆盖 D:llama.cppinllama-server.exe 这种常见摆法。
+const ENGINE_DRIVE_SCAN_MAX_DEPTH = 2
+// 每个盘符**独立**的目录预算。
+// 实测结论：原本所有盘共用一个 600 的预算，结果全被 C:/D: 的大目录树吃光，
+// 引擎所在的盘一个目录都没轮到 —— 扫描「成功」却找到 0 个。
+// 每个盘各给一份，才能保证每个盘都被看一眼。
+const ENGINE_DRIVE_SCAN_MAX_DIRS = 250
+
+function scanEngineFiles(
+  root,
+  depth = 0,
+  out = [],
+  budget = { dirs: 0, limit: ENGINE_SCAN_MAX_DIRS },
+  maxDepth = ENGINE_SCAN_MAX_DEPTH,
+) {
+  if (!root || depth > maxDepth) return out
+  if (budget.dirs >= budget.limit) return out
+  let entries = []
+  try {
+    entries = readdirSync(root, { withFileTypes: true })
+  } catch {
+    return out
+  }
+  budget.dirs += 1
+  for (const entry of entries) {
+    if (budget.dirs >= budget.limit) break
+    const full = path.join(root, entry.name)
+    if (entry.isDirectory()) {
+      const name = entry.name.toLowerCase()
+      // 同样的跳过表：引擎不会正经放在 Users / Downloads / node_modules 里。
+      if (entry.name.startsWith('.') || name === 'node_modules' || SCAN_STOP_DIRS.has(name)) continue
+      scanEngineFiles(full, depth + 1, out, budget, maxDepth)
+    } else if (isEngineServerFile(entry.name)) {
+      out.push(full)
+    }
+  }
+  return out
+}
+
+// 扫描结果缓存：engine-list 在每次渲染时都可能被调用，不能每次都遍历磁盘。
+// 用户点「重新扫描」时清掉。
+let engineScanCache = null
+
+// 从**磁盘上的配置**里取「引擎基目录」，用作扫描根。
+//
+// 为什么要它：引擎通常是并排放在同一个基目录下的 ——
+//   00_models_Base\
+//     llama.cpp\bin\llama-server.exe
+//     kvmem-gui\llama-server.exe
+//     prism-llama\llama-server.exe
+// 所以「用户正在用的那个引擎」的上一级，是最可能找齐其他引擎的地方。
+// 程序目录附近未必有引擎：用户完全可以把它放在另一个盘上。
+function engineBaseDirFromConfig() {
+  const serverPath = String(currentConfigFromDisk().llama_server_path || '').trim()
+  if (!serverPath) return ''
+  // …\00_models_Base\kvmem-gui\llama-server.exe → …\00_models_Base
+  return path.dirname(path.dirname(serverPath))
+}
+
+// 读磁盘上的当前配置：扫描根与引擎推荐都要用它。
+// 渲染进程里还没保存的改动这里拿不到，但不影响 —— 配置一保存就同步了。
+function currentConfigFromDisk() {
+  try {
+    const statePath = defaultStatePath()
+    if (!existsSync(statePath)) return {}
+    const desktopState = JSON.parse(readFileSync(statePath, 'utf8').replace(/^\uFEFF/, ''))
+    const configPath = desktopState.config_path || defaultConfigPath()
+    if (!existsSync(configPath)) return {}
+    return parseToml(readFileSync(configPath, 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+// 按模型推荐引擎 —— 让普通用户不必先懂引擎。
+//
+// 规则本身在 lib/preset-engine.mjs（和引擎定义放在一起，是纯函数、有测试）。
+// 这里只负责把磁盘上的模型路径喂进去。
+function recommendedEngineId() {
+  const modelPath = String(currentConfigFromDisk().model || '')
+  // classifyModelType 只看文件名，所以先取 basename。
+  return recommendEngineIdForModel(path.basename(modelPath))
+}
+
+// 落地的推荐：只返回**真的扫到了**的那个。
+// 扫不到就返回 null —— 让界面继续提示「手动指定」，
+// 而不是推荐一个不存在的路径（那会让用户点了启动才发现跑不起来）。
+function recommendEnginePath(discovered = []) {
+  return pickRecommendedEngine(recommendedEngineId(), discovered)
+}
+
+// 从**用户自己的预设文件**里收集引擎基目录。
+//
+// 这是最贴近实际的一条线索：用户可能一次都没点过「保存」，所以没有 config.toml，
+// 但预设文件一定是他自己存下来的，里面就写着用过的引擎路径。
+// 引擎通常并排放在同一个基目录下（llama.cpp\、kvmem-gui\、prism-llama\），
+// 所以拿到任意一个，就能把其余的找齐。
+function engineBaseDirsFromPresets(limit = 5) {
+  const roots = []
+  try {
+    for (const name of listPresets().slice(0, limit)) {
+      const filePath = presetFilePath(name)
+      if (!existsSync(filePath)) continue
+      const serverPath = String(parseToml(readFileSync(filePath, 'utf8')).llama_server_path || '').trim()
+      if (!serverPath) continue
+      // …\00_models_Base\kvmem-gui\llama-server.exe → …\00_models_Base
+      roots.push(path.dirname(path.dirname(serverPath)))
+    }
+  } catch {
+    // 预设读不动不影响扫描：其余扫描根照常用。
+  }
+  return roots
+}
+
+// 本机的固定磁盘。用于「新用户会把引擎放在哪」这类零配置猜测：
+// 很多人就是把 llama.cpp 解压在 D:\ 或 E:\ 下面，程序目录和预设里都没有线索。
+// 逐个探测盘符比调用 WMI 便宜得多，26 次 existsSync 可以忽略。
+function listFixedDrives() {
+  const drives = []
+  for (let code = 67; code <= 90; code += 1) { // C..Z，跳过 A/B 软驱
+    const root = `${String.fromCharCode(code)}:\\`
+    if (existsSync(root)) drives.push(root)
+  }
+  return drives
+}
+
+function discoverEngines({ force = false, currentServerPath = '', searchDir = '' } = {}) {
+  if (!force && engineScanCache) return engineScanCache
+  const base = defaultBaseDir()
+  // 界面上还没保存的路径也算一个根：用户刚选完一个引擎、还没点保存时，
+  // 就该能扫到它的兄弟引擎。
+  const hint = String(currentServerPath || '').trim()
+  const hintBase = hint ? path.dirname(path.dirname(hint)) : ''
+  // 用户亲手指过的那一级 —— 优先，且给它更深的深度。
+  const pointed = String(searchDir || '').trim() || String(currentConfigFromDisk().engine_search_dir || '').trim()
+
+  // 1) 精确根：深扫（这些位置一定是用户放东西的地方）
+  const deepRoots = [...new Set([
+    base,
+    path.join(base, '..'),
+    modelsBaseDir(),
+    authoredModelsBaseDir,
+    engineBaseDirFromConfig(),
+    ...engineBaseDirsFromPresets(),
+    hintBase,
+    pointed,
+    pointed ? path.dirname(pointed) : '',
+  ].filter(Boolean))]
+
+  const files = []
+  // 深层扫描共用一个预算：这些是「一定值得细看」的位置，让先来的先扫。
+  const budget = { dirs: 0, limit: ENGINE_SCAN_MAX_DIRS }
+  for (const root of deepRoots) {
+    if (budget.dirs >= budget.limit) break
+    scanEngineFiles(root, 0, files, budget)
+  }
+
+  // 2) 兜底：各磁盘根目录，只扫浅层。
+  // 新用户没有任何历史线索时，这是唯一能「零配置找到」的机会：
+  // D:\llama.cpp\bin\llama-server.exe 这种摆法很常见。
+  // 只有前面的精确根一个都没找到时才走这里 —— 否则白扫一遍盘。
+  if (!files.length) {
+    // 程序所在盘优先：引擎放在程序附近的概率最高，先看它。
+    const appDrive = path.parse(base).root
+    const drives = [...new Set([appDrive, ...listFixedDrives()].filter(Boolean))].slice(0, 5)
+    for (const drive of drives) {
+      // 每个盘一份**新**预算。共用一份会被 C:/D: 的大目录树吃光，
+      // 引擎所在的盘一个目录都轮不到（实测过：600 个预算全花在别的盘上，找到 0 个）。
+      scanEngineFiles(
+        drive,
+        0,
+        files,
+        { dirs: 0, limit: ENGINE_DRIVE_SCAN_MAX_DIRS },
+        ENGINE_DRIVE_SCAN_MAX_DEPTH,
+      )
+    }
+  }
+
+  engineScanCache = rankEngineCandidates(
+    files.map(filePath => engineCandidateFromFile({ filePath })).filter(Boolean),
+  )
+  return engineScanCache
 }
 
 // 本地模型清单：给顶栏「模型」折叠菜单用。
@@ -2157,6 +2375,21 @@ function registerIpc() {
 
   // P0-2: Engine switching
   ipcMain.handle('llama:engine-list', () => resolveEnginePaths())
+  // 显式重新扫描：用户把引擎挪了位置、或新解压了一份之后点一下。
+  // 清缓存再扫，返回完整候选列表（界面用它展示「扫到了哪些」）。
+  ipcMain.handle('llama:engine-rescan', (_event, payload) => {
+    engineScanCache = null
+    // 界面把两个「还没保存到磁盘」的线索带下来：
+    //   currentServerPath —— 当前配的引擎路径（它的基目录最该扫）
+    //   searchDir         —— 用户亲手指过的文件夹（「我放 llama.cpp 的地方」）
+    // 只靠磁盘上的 config.toml 不够：用户可能刚选完还没点保存。
+    const candidates = discoverEngines({
+      force: true,
+      currentServerPath: payload?.currentServerPath,
+      searchDir: payload?.searchDir,
+    })
+    return { engines: resolveEnginePaths(), candidates, recommended: recommendEnginePath(candidates) }
+  })
   ipcMain.handle('llama:engine-detect', async (_event, serverPath) => ({ engineId: detectEngineByPath(serverPath || ''), engines: resolveEnginePaths() }))
 
   // P1-2: VRAM guard

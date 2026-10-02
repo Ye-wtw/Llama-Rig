@@ -226,6 +226,91 @@ export function detectEngineByPath(serverPath) {
   return DEFAULT_ENGINE_ID
 }
 
+// ---------- 引擎发现 ----------
+//
+// 原先引擎只能放在「模型根目录下的固定相对位置」（llama.cpp\bin\、kvmem-gui\、prism-llama\），
+// 换个地方就显示「未安装」并禁用 —— 用户明明有引擎，却因为摆放位置不同而选不了。
+// 这里改成和模型一样的思路：**扫出来**，再让用户挑。
+
+// 只认「服务端」可执行文件。
+// llama.cpp 的发行包里同目录还躺着 llama-cli / llama-bench / llama-quantize / llama-embedding…
+// 把它们当引擎列出来，用户选中后启动会直接失败，而且报错看不出是选错了文件。
+// 命名上覆盖：llama-server.exe、llama-kvmem-server.exe、以及各 fork 的 llama-xxx-server.exe。
+const ENGINE_SERVER_FILE = /^llama[-_].*server\.exe$/i
+
+export function isEngineServerFile(fileName) {
+  return ENGINE_SERVER_FILE.test(String(fileName || '').trim())
+}
+
+// 把一个「扫到的文件」变成引擎候选；不是引擎服务端就返回 null。
+export function engineCandidateFromFile({ filePath, fileName } = {}) {
+  const full = String(filePath || '')
+  const name = String(fileName || fileNameOf(full) || '').trim()
+  if (!isEngineServerFile(name)) return null
+  return {
+    engineId: detectEngineByPath(full),
+    path: full,
+    dir: parentDir(full),
+    fileName: name,
+  }
+}
+
+// 候选去重 + 排序。
+// 同一个可执行文件可能在多个扫描根里都被扫到（比如应用目录和它的上一级有软链），
+// 按路径去重；同一引擎有多份构建是正常的（原版 / 自编译 / 不同优化），都保留。
+export function rankEngineCandidates(candidates = []) {
+  const seen = new Set()
+  const unique = []
+  for (const candidate of candidates) {
+    if (!candidate || !candidate.path) continue
+    const key = String(candidate.path).toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    unique.push(candidate)
+  }
+  const order = new Map(ENGINE_DEFINITIONS.map((engine, index) => [engine.id, index]))
+  return unique.sort((a, b) => {
+    const byEngine = (order.get(a.engineId) ?? ENGINE_DEFINITIONS.length) - (order.get(b.engineId) ?? ENGINE_DEFINITIONS.length)
+    if (byEngine !== 0) return byEngine
+    // 同一引擎内按路径排，保证每次扫描顺序一致（否则界面上的列表会跳来跳去）。
+    return String(a.path).localeCompare(String(b.path), 'zh')
+  })
+}
+
+// 把扫到的候选合并进引擎定义：某个引擎在「固定位置」没找到，但扫到了别的路径，
+// 就用扫到的那个填上 —— 这样原有的下拉框不必改逻辑，就能反映真实可用的引擎。
+// 固定位置优先：那是用户按便携布局刻意摆好的，比扫描结果更可信。
+export function mergeDiscoveredEngines(defined = [], discovered = []) {
+  return defined.map(engine => {
+    if (engine.path) return engine
+    const hit = discovered.find(candidate => candidate.engineId === engine.id)
+    return hit ? { ...engine, path: hit.path, discovered: true } : engine
+  })
+}
+
+// ---------- 按模型推荐引擎 ----------
+//
+// 面向普通使用者：不该让人先去弄懂 KVMem 和 llama.cpp 的区别再选。
+// 依据就写在引擎定义里 —— KVMem / PrismML 的说明都是「跑三元 Bonsai」，
+// 原版 llama.cpp 是「跑普通 GGUF」，所以看模型类型就够。
+// 这是**推荐**：用户手动指定过的引擎永远优先，界面只在没指定时才用它。
+export function recommendEngineIdForModel(modelFileName) {
+  return classifyModelType(modelFileName) === '三元 Bonsai' ? 'kvmem' : 'llama-cpp'
+}
+
+// 推荐的落地：按「首选 → 备选」依次找，只返回**真的扫到了**的那个。
+// 扫不到就返回 null，让界面继续提示「手动指定」，
+// 而不是推荐一个不存在的路径（那会让用户点了启动才发现跑不起来）。
+export function pickRecommendedEngine(engineId, discovered = []) {
+  // 三元 Bonsai 两个引擎都能跑：首选 KVMem，没有就退 PrismML。
+  const order = engineId === 'kvmem' ? ['kvmem', 'prismml', 'llama-cpp'] : ['llama-cpp', 'kvmem', 'prismml']
+  for (const id of order) {
+    const hit = discovered.find(candidate => candidate.engineId === id)
+    if (hit) return hit
+  }
+  return null
+}
+
 // 启动前校验：引擎不支持的开关若被打开，抛错并说明是哪个开关。
 // 「这个字段算不算留了值」——与主进程 hasValue() 同语义。
 export function hasMeaningfulValue(value) {
@@ -290,6 +375,10 @@ export function stripUiPreferences(config = {}) {
 // 会把用户已经配好的模型/引擎路径清掉，直接变成起不来的状态。
 export const PRESET_PATH_FIELDS = [
   'model', 'mmproj', 'llama_server_path', 'llama_bin_dir', 'launcher_path', 'config_path', 'lora_paths',
+  // 用户指过一次「引擎放在哪」的文件夹。它不是引擎本身，但同样是**路径**：
+  // 预设里留空时必须沿用当前值，否则套用一个只含参数的预设会把这个线索清掉，
+  // 下次就再也自动找不到引擎了。
+  'engine_search_dir',
 ]
 
 // 套用预设：参数一律以预设为准，路径类字段则「预设里没写就保持当前」。
@@ -302,6 +391,30 @@ export function applyPresetOverCurrent(current = {}, incoming = {}) {
   }
   return next
 }
+
+// 把「文件里本来留空」的路径字段还原成空串。
+//
+// 上面那段注释曾以为 normalizeConfig 会把路径填成空串 —— 实际不会：
+// normalizeConfig 面向「完整配置」，它算的是
+//   llama_server_path: path.join(llamaBinDir, serverFileName)
+// 这是个**永远非空**的路径。于是读取一个路径留空的预设时，拿到的已经不是
+// 空串而是默认路径，applyPresetOverCurrent 的「空 = 沿用当前」在读取阶段
+// 就失效了，转而按「预设优先」把用户已配好的路径覆盖掉。
+//
+// 实测过的后果：载入随包的参数模板预设，用户的
+//   …\kvmem-gui\llama-server.exe
+// 被换成默认路径 —— 一个只想调参数的预设，把引擎悄悄换掉了。
+//
+// 所以预设读取完要把「文件里为空」的路径字段还原为空。预设是**局部覆盖**，
+// 不是完整配置，给它补齐默认值本身就是错的前提。
+export function restoreEmptyPathFields(normalized = {}, rawValues = {}) {
+  const next = { ...normalized }
+  for (const field of PRESET_PATH_FIELDS) {
+    if (String(rawValues?.[field] ?? '').trim() === '') next[field] = ''
+  }
+  return next
+}
+
 // 应用预设时保留当前外观 —— 即使文件里残留了外观键（旧文件）也不会改界面。
 export function preserveUiPreferences(current = {}, incoming = {}) {
   const next = { ...incoming }

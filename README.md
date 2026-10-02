@@ -39,10 +39,26 @@
 
 [打开 Releases](https://github.com/Ye-wtw/Llama-Rig/releases)
 
-下载 `Llama-Rig-<版本号>.exe`（如 `Llama-Rig-0.8.1.exe`）后双击运行即可。项目本身不包含模型文件和 llama.cpp 二进制文件，需要你本机已经有可用的 llama.cpp Windows 构建目录。
+每次发布提供两种形态，**内容完全相同**，选一个即可：
 
-> 首次运行会看到 Windows SmartScreen 的蓝色提示（因为安装包没有购买代码签名证书），
+| 文件 | 特点 | 适合 |
+| --- | --- | --- |
+| `Llama-Rig-<版本号>.zip` | **解压版**。解压到任意目录，双击里面的 `Llama Rig.exe`。**全程不碰系统临时目录** | 推荐；C 盘空间紧张时唯一稳妥的选择 |
+| `Llama-Rig-<版本号>.exe` | 便携单文件版。下载即双击，但首次运行会把内容解到系统临时目录（约 430 MB，位于 C 盘） | 想只留一个文件的场合 |
+
+两者都附有同名 `.sha256` 校验文件，下载后可以核对完整性。
+
+> **为什么有解压版？**
+> 便携版运行时必须在 `%TEMP%` 里解出整个应用（约 344 MB，峰值约 430 MB）。
+> C 盘空间不够时会失败，而且报错是
+> `NSIS Error: Error writing temporary file. Make sure your temp folder is valid.`
+> —— 这句话看不出是磁盘满了，只会让人以为是权限或临时目录坏了。
+> 解压版由你自己选解压位置，没有这个限制。
+
+> 首次运行会看到 Windows SmartScreen 的蓝色提示（因为没有购买代码签名证书），
 > 点「更多信息」→「仍要运行」即可。
+
+项目本身不包含模型文件和 llama.cpp 二进制文件，需要你本机已经有可用的 llama.cpp Windows 构建目录。
 
 ## 快速开始
 

@@ -11,7 +11,14 @@ win:
   icon: assets/llamarig.ico
   target:
     - portable
-  # 产物名带版本号：Llama-Rig-0.8.1.exe。
+    # 解压版：便携版运行时要把整个应用（约 344 MB）解到 %TEMP%，峰值占约 430 MB。
+    # 临时目录在 C 盘，C 盘紧张的机器会直接失败，报的是
+    #   NSIS Error: Error writing temporary file. Make sure your temp folder is valid.
+    # ——这句话完全指不到"磁盘满"这个真正原因，用户只能靠猜。
+    # zip 版由用户自己解到有空间的盘，全程不碰临时目录。
+    # 两者内容完全相同，只是分发形态不同（见 README「两种下载」一节）。
+    - zip
+  # 产物名带版本号：Llama-Rig-0.8.3.exe / Llama-Rig-0.8.3.zip。
   # CI(.github/workflows/release.yml) 从 package.json 的 version 派生同名文件，
   # 两边同源 —— 以后改版本只需要改 package.json 一处（用 npm version 连 lock 一起改）。
   artifactName: Llama-Rig-${version}.${ext}

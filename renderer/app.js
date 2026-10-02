@@ -207,6 +207,8 @@ const state = {
   presetMeta: null,
   engine: null,
   engineList: [],
+  // 扫描到的引擎候选（同一个引擎可能有多份构建，靠路径区分）
+  engineCandidates: [],
   vramUsage: null,
   vramWarning: false,
   vramGuard: null,
@@ -260,12 +262,36 @@ async function loadPresetList() {
 }
 
 async function loadEngineList() {
-  const engines = await window.llamaDesktop.engineList()
+  // 一次调用同时拿「引擎定义（已合并扫描结果）」、「扫到的候选清单」和「推荐哪个」，
+  // 避免为了候选再单独扫一遍磁盘。
+  const scanned = await window.llamaDesktop.engineRescan?.({
+    currentServerPath: state.config?.llama_server_path || '',
+    searchDir: state.config?.engine_search_dir || '',
+  })
+  const engines = scanned?.engines || await window.llamaDesktop.engineList()
   state.engineList = engines || []
-  // Auto-detect engine from current server path
-  if (state.config?.llama_server_path) {
-    const detected = await window.llamaDesktop.engineDetect(state.config.llama_server_path)
-    state.engine = detected
+  state.engineCandidates = scanned?.candidates || []
+
+  const configured = String(state.config?.llama_server_path || '').trim()
+  if (configured) {
+    // 用户已经指定过引擎 —— 只识别它是什么，绝不改动。
+    state.engine = await window.llamaDesktop.engineDetect(configured)
+    return
+  }
+
+  // 还没指定过引擎：直接替用户选好，别让他先去弄懂 KVMem 和 llama.cpp 的区别。
+  // 主进程按模型类型给推荐（三元 Bonsai → KVMem，其余 → llama.cpp），
+  // 且只推荐「真的扫到了」的那个，所以这里不会指到一个用不了的路径。
+  const recommended = scanned?.recommended
+  if (recommended?.path) {
+    state.config = sanitizeEngineParams({
+      ...state.config,
+      llama_server_path: recommended.path,
+      llama_bin_dir: recommended.dir || '',
+    })
+    state.engine = { engineId: recommended.engineId, engines: state.engineList }
+    state.dirty = true
+    state.toast = `已自动选用引擎：${engineLabelOf(recommended.engineId)}（可随时手动更改）`
   }
 }
 
@@ -340,6 +366,57 @@ function presetsForCurrentModel() {
   return { names, filtered: true, matched: specific.length, modelName }
 }
 
+// 加载预设之后，把「到底变了什么」说出来。
+//
+// 原先加载预设只是替换 state.config，界面上没有任何一句话交代结果。
+// 于是当预设的值和当前值本来就相同时（例如随包的参数模板，或你已经调成一样的），
+// 用户看到的就是「点了按钮，什么都没发生」，很容易误判成「加载失败 / 界面没同步」。
+// 这里把真正变化的字段列出来；一个都没变就明说没有差异。
+const PRESET_OUTCOME_FIELDS = [
+  ['ctx_size', '上下文'],
+  ['n_gpu_layers', 'GPU 层数'],
+  ['port', '端口'],
+  ['batch_size', 'batch'],
+  ['ubatch_size', 'ubatch'],
+  ['threads', '线程'],
+  ['temp', '温度'],
+  ['top_k', 'top_k'],
+  ['top_p', 'top_p'],
+  ['model', '模型'],
+  ['llama_server_path', '引擎路径'],
+]
+
+function describePresetOutcome(name, before, after) {
+  const changes = []
+  // 路径只报末尾两级（`bin\llama-server.exe`），整条路径塞进提示条会挤成一团。
+  // 但如果缩完两边一模一样（例如只是换了盘符或上层目录），就必须退回完整值 ——
+  // 否则提示会显示成「引擎路径 llama-server.exe → llama-server.exe」，
+  // 明明变了却看着像没变，正好和这条提示要解决的问题相反。
+  const shorten = value => {
+    if (!value.includes('\\') && !value.includes('/')) return value
+    const parts = value.split(/[\\/]/).filter(Boolean)
+    return parts.length ? parts.slice(-2).join('\\') : value
+  }
+  const render = value => {
+    const text = String(value ?? '')
+    if (!text) return '(空)'
+    const short = shorten(text)
+    return short || text
+  }
+  for (const [field, label] of PRESET_OUTCOME_FIELDS) {
+    const from = String(before?.[field] ?? '')
+    const to = String(after?.[field] ?? '')
+    if (from === to) continue
+    // 缩短后撞在一起了（只差上层目录）→ 两边都退回完整值，保证看得出差别。
+    const collapsed = from && to && shorten(from) === shorten(to)
+    changes.push(`${label} ${collapsed ? from : render(from)} → ${collapsed ? to : render(to)}`)
+  }
+  if (!changes.length) return `已加载「${name}」，但它的参数与当前配置完全相同`
+  const shown = changes.slice(0, 3).join('、')
+  const more = changes.length > 3 ? ` 等 ${changes.length} 项` : ''
+  return `已加载「${name}」：${shown}${more}`
+}
+
 async function applyPreset(name) {
   if (!name) return
   try {
@@ -356,12 +433,15 @@ async function applyPreset(name) {
     // 否则预设里残留的 theme_mode 会把界面外观改掉。
     // 路径类字段留空 = 沿用当前（见 applyPresetOverCurrent 的注释）：
     // 否则一个不含模型路径的示例预设会把用户已配好的路径清空。
+    const beforeConfig = state.config
     state.config = sanitizeEngineParams(
       preserveUiPreferences(state.config, applyPresetOverCurrent(state.config, config)),
     )
     state.preset = name
     state.presetPreview = name
     state.dirty = true
+    // 必须在 loadPresetMetadata 之前设好：它内部会 render()，提示要跟着那一帧显示出来。
+    state.toast = describePresetOutcome(name, beforeConfig, state.config)
     await refreshEngineForConfig()
     await loadPresetMetadata(name)
   } catch (err) {
@@ -928,23 +1008,158 @@ function renderEngineSelector() {
   const engines = state.engineList || []
   if (!engines.length) return ''
   const currentId = state.engine?.engineId || 'llama-cpp'
+  const currentPath = String(state.config?.llama_server_path || '')
   const options = engines
     .map(engine => {
       const selected = engine.id === currentId ? ' selected' : ''
       const disabled = engine.path ? '' : ' disabled'
-      const suffix = engine.path ? '' : '（未安装）'
+      const suffix = engine.path ? '' : '（未找到）'
       return `<option value="${escapeAttribute(engine.id)}"${selected}${disabled}>${escapeHtml(engine.label + suffix)}</option>`
     })
     .join('')
   const current = engines.find(engine => engine.id === currentId)
+
+  // 面向普通使用者：先给一句「现在用的是哪个」，别让人从路径里猜。
+  const statusLine = currentPath
+    ? `<div class="engine-status">当前：<strong>${escapeHtml(engineLabelOf(currentId))}</strong>${current?.desc ? ` · ${escapeHtml(current.desc)}` : ''}</div>`
+    : `<div class="engine-status">还没指定引擎。点下面的按钮选一个，或让软件自动找。</div>`
+
+  // 扫描结果：**名称在前**，路径只作为悬停提示。
+  // 同一个引擎有多份构建时才补一句上级目录名（那才是用户能分辨的信息，
+  // 整条绝对路径对普通使用者没有意义）。
+  const candidates = (state.engineCandidates || []).slice(0, 8)
+  const sameEngineCount = candidates.reduce((acc, c) => {
+    acc[c.engineId] = (acc[c.engineId] || 0) + 1
+    return acc
+  }, {})
+  const candidateList = candidates.length
+    ? `
+      <div class="engine-found">
+        <div class="engine-found-title">找到了这些引擎，点一下就能用</div>
+        ${candidates.map(candidate => {
+          const parent = String(candidate.dir || '').split(/[\\/]/).filter(Boolean).pop() || ''
+          const needDisambiguate = sameEngineCount[candidate.engineId] > 1
+          return `
+          <button type="button" class="engine-found-item${candidate.path === currentPath ? ' on' : ''}"
+                  data-action="engine-pick" data-engine-path="${escapeAttribute(candidate.path)}" data-engine-id="${escapeAttribute(candidate.engineId)}"
+                  title="${escapeAttribute(candidate.path)}">
+            <span class="engine-found-name">${escapeHtml(engineLabelOf(candidate.engineId))}</span>
+            ${needDisambiguate ? `<span class="engine-found-where">${escapeHtml(parent)}</span>` : ''}
+          </button>`
+        }).join('')}
+      </div>`
+    : ''
+
+  // 一个都没找到时，才对普通用户提「告诉我你把它放在哪」——
+  // 平时不必让这些字占地方（渐进披露）。
+  const notFoundHelp = candidates.length
+    ? ''
+    : `
+      <div class="engine-empty">
+        <div>没找到引擎。告诉我你把它放在哪个文件夹，我就能自己找出其余的：</div>
+        <div class="engine-empty-actions">
+          <button class="btn btn-primary" type="button" data-action="engine-pick-dir">选择引擎文件夹…</button>
+          <button class="btn btn-secondary" type="button" data-action="engine-browse">或直接选中那个文件</button>
+        </div>
+      </div>`
+
   return `
     <div class="preset-engine-row">
       <span class="preset-engine-label">引擎</span>
       <select id="engineSelect" class="preset-select">${options}</select>
-      <button id="switchEngineBtn" class="btn btn-primary" type="button" data-action="engine-switch">切换引擎</button>
+      <button id="switchEngineBtn" class="btn btn-primary" type="button" data-action="engine-switch">切换</button>
+      <button class="btn btn-secondary" type="button" data-action="engine-rescan">自动查找</button>
     </div>
-    ${current?.desc ? `<div class="preset-engine-hint">${escapeHtml(current.desc)}</div>` : ''}
+    ${statusLine}
+    ${candidateList}
+    ${notFoundHelp}
   `
+}
+
+function engineLabelOf(engineId) {
+  const hit = (state.engineList || []).find(engine => engine.id === engineId)
+  return hit?.label || engineId
+}
+
+// 把选中的引擎可执行文件写回配置。
+// 手动选择和「点扫描结果」走同一条路径，避免两处逻辑走偏。
+async function applyEngineBinary(fullPath, source = '扫到的', knownEngineId = '') {
+  const target = String(fullPath || '').trim()
+  if (!target) return
+  const binDir = target.split(/[\\/]/).slice(0, -1).join('\\')
+  // 引擎类型只由主进程判定（detectEngineByPath 是唯一真相）。
+  // 渲染进程是普通脚本、不能 import 那个模块，所以**不复制**这套规则 ——
+  // 复制就会漂移，扫描结果里已经带好了 engineId，手动选择时问一次主进程。
+  let engineId = String(knownEngineId || '').trim()
+  if (!engineId) {
+    try {
+      engineId = (await window.llamaDesktop.engineDetect(target))?.engineId || 'llama-cpp'
+    } catch {
+      engineId = 'llama-cpp'
+    }
+  }
+  state.config = sanitizeEngineParams({ ...state.config, llama_server_path: target, llama_bin_dir: binDir })
+  state.engine = { engineId, engines: state.engineList }
+  state.dirty = true
+  state.toast = `已${source === '手动' ? '手动指定' : '选用'}引擎：${engineLabelOf(engineId)}`
+  render()
+}
+
+// 重新扫描：用户把引擎挪了位置、或新解压了一份之后点一下。
+async function rescanEngines() {
+  try {
+    const result = await window.llamaDesktop.engineRescan?.({
+      currentServerPath: state.config?.llama_server_path || '',
+      searchDir: state.config?.engine_search_dir || '',
+    })
+    if (result) {
+      state.engineList = result.engines || state.engineList
+      state.engineCandidates = result.candidates || []
+    }
+    const count = (state.engineCandidates || []).length
+    state.toast = count
+      ? `找到 ${count} 个引擎`
+      : '没找到引擎。点「选择引擎文件夹…」告诉我你把它放在哪，我就能自己找出其余的'
+  } catch (error) {
+    state.toast = '查找引擎失败：' + (error?.message || error)
+  }
+  render()
+}
+
+// 让用户指一个文件夹（「我放 llama.cpp 的地方」）。
+//
+// 这是对新用户最关键的一步：他们的引擎可能在任意盘、任意层级，
+// 靠猜是猜不到的；但只要指一次，同级目录下的其他引擎就能自动找齐。
+// 指过的位置会存进配置，下次启动就不用再指。
+async function pickEngineFolder() {
+  try {
+    const selected = await window.llamaDesktop.pickFile({ properties: ['openDirectory'] })
+    if (!selected) return
+    state.config = { ...state.config, engine_search_dir: selected }
+    state.dirty = true
+    await rescanEngines()
+    if (!(state.engineCandidates || []).length) {
+      state.toast = '这个文件夹里没找到引擎。可以再选上一层，或点「手动指定…」直接选中那个 exe'
+      render()
+    }
+  } catch (error) {
+    state.toast = '选择文件夹失败：' + (error?.message || error)
+    render()
+  }
+}
+
+// 手动选择引擎可执行文件 —— 扫描没覆盖到的位置靠它兜底。
+async function browseEngineBinary() {
+  try {
+    const selected = await window.llamaDesktop.pickFile({
+      properties: ['openFile'],
+      filters: [{ name: '引擎可执行文件', extensions: ['exe'] }],
+    })
+    if (selected) await applyEngineBinary(selected, '手动')
+  } catch (error) {
+    state.toast = '选择引擎失败：' + (error?.message || error)
+    render()
+  }
 }
 
 function handleSwitchEngine() {
@@ -4801,6 +5016,22 @@ appEl.addEventListener('click', event => {
   }
   if (action === 'preset-editor-save') {
     void savePresetDraft()
+    return
+  }
+  if (action === 'engine-rescan') {
+    rescanEngines()
+    return
+  }
+  if (action === 'engine-pick-dir') {
+    pickEngineFolder()
+    return
+  }
+  if (action === 'engine-browse') {
+    browseEngineBinary()
+    return
+  }
+  if (action === 'engine-pick') {
+    applyEngineBinary(target.dataset.enginePath || '', '扫到的', target.dataset.engineId || '')
     return
   }
   if (action === 'engine-switch') {
