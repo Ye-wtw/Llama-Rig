@@ -127,7 +127,12 @@ test('预设下拉框通过委托的 change 监听处理', () => {
 })
 
 test('渲染进程启动时会初始化预设、引擎与显存状态', () => {
-  assert.match(rendererSource, /loadPresetList\(\)\.catch/, '启动流程未加载预设列表')
+  // 不写死 .catch：启动时可能是 loadPresetList().catch(...)，
+  // 也可能是 loadPresetList().then(渲染).catch(...) —— 两者都算「加载了」。
+  assert.match(rendererSource, /loadPresetList\(\)\.(then|catch)/, '启动流程未加载预设列表')
+  // 预设摘要不再在启动处单独调用：它已并进 loadPresetList（名单与摘要必须同时刷新）。
+  // 所以断言的是「摘要会被加载」，而不是「在哪一行被调用」。
+  assert.match(rendererSource, /await loadPresetSummaries\(\)/, '预设摘要没有被加载')
   assert.match(rendererSource, /loadEngineList\(\)\.catch/, '启动流程未加载引擎列表')
   assert.match(rendererSource, /checkVram\(\)\.catch/, '启动流程未检查显存')
 })

@@ -1,6 +1,6 @@
 {
   "name": "llama-rig",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "本地多引擎 LLM 推理控制台 — 预设管理、显存守卫，以及按硬件生成的稳定预设。",
   "author": "",
   "license": "MIT",

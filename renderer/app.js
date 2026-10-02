@@ -246,9 +246,17 @@ function readableError(error) {
 // P0: Preset / Engine / VRAM management
 // ============================================================
 
+// 预设名单 + 预设摘要，两者必须一起刷新。
+//
+// 摘要（presetSummaries）决定左侧列表里「哪些预设属于当前模型」，它是个快照。
+// 曾经这里只刷名单不刷摘要：保存预设后名字进了 presetList，却没进摘要，
+// 于是被过滤条件当成「跟当前模型无关」直接不显示 —— 而设置区用的是未过滤的
+// presetList，所以那里照样看得见，现象就是「新建的预设只在设置里出现」。
+// 把摘要并进来，所有调用点（保存/改名/复制/删除/刷新）自动一起更新。
 async function loadPresetList() {
   const list = await window.llamaDesktop.presetList()
   state.presetList = list || []
+  await loadPresetSummaries()
 }
 
 async function loadEngineList() {
@@ -318,7 +326,15 @@ function presetsForCurrentModel() {
   const specific = summaries.filter(item => item.model && item.model === modelName).map(item => item.name)
   // 不绑定任何模型的「参数型预设」（例如随包附带的示例）：对哪个模型都能用，所以始终列出
   const generic = summaries.filter(item => !item.model).map(item => item.name)
-  const names = all.filter(name => specific.includes(name) || generic.includes(name))
+  // 摘要里查不到的预设一律保留 —— 这里必须「失败即放行」。
+  // 摘要是异步快照，可能落后于 presetList（刚保存、刚改名、或用户直接把
+  // .config.toml 丢进 configs\ 目录）；把「查不到」当成「不适用」，就等于把
+  // 用户自己的预设藏起来，而他只能去设置区看到它，找不到原因。
+  // 宁可多列一个不相关的，也不能少列一个属于他的。
+  const summarized = new Set(summaries.map(item => item.name))
+  const names = all.filter(
+    name => !summarized.has(name) || specific.includes(name) || generic.includes(name),
+  )
   // matched 只数「专门为这个模型做的预设」—— 它决定要不要露出「按硬件生成」入口，
   // 参数型预设的存在不该把这个入口挤掉。
   return { names, filtered: true, matched: specific.length, modelName }
@@ -328,24 +344,31 @@ async function applyPreset(name) {
   if (!name) return
   try {
     const config = await window.llamaDesktop.presetRead(name)
-    if (config) {
-      // 外观属于用户偏好，不属于预设：合并时保留当前值，
-      // 否则预设里残留的 theme_mode 会把界面外观改掉。
-      // 路径类字段留空 = 沿用当前（见 applyPresetOverCurrent 的注释）：
-      // 否则一个不含模型路径的示例预设会把用户已配好的路径清空。
-      state.config = sanitizeEngineParams(
-        preserveUiPreferences(state.config, applyPresetOverCurrent(state.config, config)),
-      )
-      state.preset = name
-      state.presetPreview = name
-      state.dirty = true
-      await refreshEngineForConfig()
-      await loadPresetMetadata(name)
+    // 读不到不能静默返回。
+    // 这里原来是 if (config) { ... }：读失败时函数一声不响地结束，
+    // 用户点了「加载预设」界面上毫无变化，也无从判断是没生效还是自己点错了。
+    if (!config) {
+      state.toast = '读不到预设「' + name + '」，请确认 configs 目录里这个文件还在'
       render()
+      return
     }
+    // 外观属于用户偏好，不属于预设：合并时保留当前值，
+    // 否则预设里残留的 theme_mode 会把界面外观改掉。
+    // 路径类字段留空 = 沿用当前（见 applyPresetOverCurrent 的注释）：
+    // 否则一个不含模型路径的示例预设会把用户已配好的路径清空。
+    state.config = sanitizeEngineParams(
+      preserveUiPreferences(state.config, applyPresetOverCurrent(state.config, config)),
+    )
+    state.preset = name
+    state.presetPreview = name
+    state.dirty = true
+    await refreshEngineForConfig()
+    await loadPresetMetadata(name)
   } catch (err) {
     console.error('Failed to load preset:', err)
     state.toast = '加载预设失败: ' + err.message
+    // 出错也要重绘，否则 toast 根本没机会显示出来。
+    render()
   }
 }
 
@@ -5355,8 +5378,8 @@ async function init() {
       })
     }).catch(() => {})
     // P0: Load presets, engine info, and VRAM
-    loadPresetList().catch(() => {})
-    loadPresetSummaries().then(() => render({ preserveChatScroll: true })).catch(() => {})
+    // loadPresetList 内部已经连摘要一起刷新，不必再单独调一次。
+    loadPresetList().then(() => render({ preserveChatScroll: true })).catch(() => {})
     loadEngineList().catch(() => {})
     loadModelList().catch(() => {})
     checkVram().catch(() => {})

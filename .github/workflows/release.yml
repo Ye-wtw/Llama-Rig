@@ -76,8 +76,36 @@ jobs:
             - `Llama-Rig-<version>.exe` —— 免安装便携版（版本号与 tag 一致，取自 package.json）
             - 同名 `.sha256` 校验文件
 
+            ## 首次运行会看到 SmartScreen 提示（正常现象，不是病毒）
+
+            本程序**没有购买代码签名证书**，所以 Windows Defender SmartScreen 会提示
+            「Windows 已保护你的电脑 / 阻止了无法识别的应用」。
+
+            这是未签名程序的统一待遇，与程序内容无关。请这样继续：
+
+            1. 点提示框里的 **「更多信息」**
+            2. 再点右下角的 **「仍要运行」**
+
+            想确认文件没被篡改，可以先核对校验和（下载后按下面的方式算，与 `.sha256` 比对）：
+
+            ```powershell
+            Get-FileHash .\Llama-Rig-<version>.exe -Algorithm SHA256
+            ```
+
+            ## 数据放在哪
+
+            完全便携：所有数据生成在 **exe 所在的文件夹**，不写 `%APPDATA%`、不写注册表。
+            首次运行后 exe 旁边会出现：
+
+            - `configs\` —— 预设目录（首次运行会放入一个示例预设「示例-通用参数」）
+            - `userdata\` —— 界面缓存，可随时删除
+            - `config.toml` / `desktop-state.json` —— 保存设置后生成
+
+            预设就是你自己的文件：备份或换机器时，把 `configs\` 整个拷过去即可。
+
             ## Known limitations
             - Windows portable executable only. llama.cpp binaries, models, mmproj files, CUDA, and Vulkan are not bundled.
+            - 未做代码签名，首次运行需要手动通过 SmartScreen 提示。
 
             ## Configuration migration
             - Existing user configuration, history, and runtime state are preserved. No migration is required.
