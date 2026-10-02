@@ -1,0 +1,21 @@
+{
+  "name": "llama-rig",
+  "version": "0.8.0",
+  "description": "本地多引擎 LLM 推理控制台 — 预设管理、显存守卫，以及按硬件生成的稳定预设。",
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "main": "desktop/main.mjs",
+  "productName": "Llama Rig",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "dist": "electron-builder --publish never",
+    "lint:ui-text": "node tools/lint-ui-text.cjs",
+    "check:rendered-text": "node tools/check-rendered-text.cjs"
+  },
+  "devDependencies": {
+    "electron": "41.1.1",
+    "electron-builder": "26.8.1"
+  }
+}

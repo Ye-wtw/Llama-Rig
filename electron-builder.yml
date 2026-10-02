@@ -1,0 +1,21 @@
+appId: studio.llama-rig.local
+productName: Llama Rig
+directories:
+  output: dist
+files:
+  - assets/**
+  - desktop/**
+  - renderer/**
+  - package.json
+win:
+  icon: assets/llamarig.ico
+  target:
+    - portable
+  # 产物名带版本号：Llama-Rig-0.7.0.exe。
+  # CI(.github/workflows/release.yml) 从 package.json 的 version 派生同名文件，
+  # 两边同源 —— 以后改版本只需要改 package.json 一处。
+  artifactName: Llama-Rig-${version}.${ext}
+  forceCodeSigning: false
+asar: true
+compression: normal
+nodeGypRebuild: false

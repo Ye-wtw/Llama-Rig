@@ -1,0 +1,52 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+dist-*/
+out/
+release/
+*.exe
+*.msi
+*.zip
+*.7z
+*.blockmap
+builder-debug.yml
+
+# Releases 页面的上传件（exe + 校验和）。
+# 它属于 GitHub Releases，不属于仓库 —— 用 Actions 的 release.yml 产出，
+# 或者本地打包后手动上传。仓库里只留源码。
+_release-assets/
+
+# local runtime state
+#
+# 这四类都是「运行期产物」，不是源码。它们都含有本机绝对路径
+# （模型在哪、llama.cpp 装在哪），提交上去就是把开发机的目录布局发给了所有人。
+desktop-state.json
+config.toml
+configs/
+userdata/
+.superpowers/
+*.log
+logs/
+
+# 开发素材：预设是个人自用的一批，不进公开仓库
+# （dev/README.md 本身要提交，它说明这个目录怎么用）
+dev/presets/
+
+# llama.cpp / model files
+models/
+*.gguf
+*.ggml
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.onnx
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
