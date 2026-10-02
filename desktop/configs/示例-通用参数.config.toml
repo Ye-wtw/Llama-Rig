@@ -1,0 +1,78 @@
+# Llama Rig 预设文件
+#
+# 这里只放参数。模型与引擎路径留空表示「沿用当前配置」，不会覆盖你已经选好的。
+
+# desktop launch mode: direct or launcher
+launch_mode = "direct"
+
+# llama-server.exe 的绝对路径
+llama_server_path = ""
+
+# 模型路径
+model = ""
+
+# mmproj = "G:\\llama.cpp\\models\\your-model\\mmproj.gguf"
+
+# 服务器设置
+host = "127.0.0.1"
+port = 18200
+
+# 常用参数
+ctx_size = 8192
+n_predict = -1
+n_gpu_layers = 99
+request_timeout_ms = 1800000
+
+# 对话模板参数
+chat_quality_mode = "quality"
+chat_template_kwargs = ""
+
+# 采样设置
+temp = 1
+top_k = 20
+top_p = 0.95
+min_p = 0.05
+presence_penalty = 0
+repeat_penalty = 1.1
+
+# 系统设置
+threads = 0
+threads_batch = 0
+batch_size = 512
+ubatch_size = 128
+
+# 混合专家模型设置
+# cpu_moe = true
+# n_cpu_moe = 15
+
+# GPU 设置
+# device = ""
+split_mode = "layer"
+# tensor_split = "3,1"
+# main_gpu = 0
+
+# KV 缓存与采样扩展（原型「显存 & KV」「高级」两段）
+kv_out_size = 0
+rope_freq_base = 0
+mirostat = ""
+num_lora = 0
+
+# 开关（原型「显存 & KV」「高级」两段）
+flash_attn = false
+no_perf = false
+mlock = false
+no_map = false
+use_mmap = false
+
+# 日志与功能
+verbose = false
+# log_verbosity = 
+webui = true
+embeddings = false
+continuous_batching = true
+
+# 额外 llama-server 参数，会追加到最终启动命令末尾
+extra_args = ""
+show_thinking = true
+expand_thinking = false
+show_raw_output = false

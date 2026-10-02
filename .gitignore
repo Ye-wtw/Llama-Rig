@@ -20,15 +20,27 @@ _release-assets/
 
 # local runtime state
 #
-# 这四类都是「运行期产物」，不是源码。它们都含有本机绝对路径
+# 这些都是「运行期产物」，不是源码。它们都含有本机绝对路径
 # （模型在哪、llama.cpp 装在哪），提交上去就是把开发机的目录布局发给了所有人。
-desktop-state.json
-config.toml
-configs/
-userdata/
-.superpowers/
+#
+# 【每条都必须是根锚定的，前导斜杠不能省】
+# 便携版把运行期数据生成在 exe 旁边，也就是仓库根目录。所以规则只该管根目录。
+# 曾经写成不带斜杠的 configs/ —— git 会在**任意层级**匹配，于是
+# desktop/configs/（随包的示例预设）被一起忽略掉了。它是静默的：
+# git add . 不报错、不提示，本地文件还在，只是永远不进仓库。
+# 结果 v0.8.0 发出去用户装完一个预设都没有 —— 排查了很久才发现是这一行。
+/desktop-state.json
+/config.toml
+/configs/
+/userdata/
+/.superpowers/
 *.log
-logs/
+/logs/
+
+# 兜底：随包示例预设必须进仓库（它是首启播种的来源）。
+# 上面已改成根锚定，这里再显式放行一次，防止以后有人把规则改回宽匹配。
+!/desktop/configs/
+!/desktop/configs/**
 
 # 开发素材：预设是个人自用的一批，不进公开仓库
 # （dev/README.md 本身要提交，它说明这个目录怎么用）
