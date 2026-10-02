@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Llama Rig — 多页面原型 (设置/终端/附件)</title>
+<style>
+  :root{
+    --bg:#ffffff;--bg-2:#f5f5f5;--bg-3:#eaeaea;--ink:#0a0a0a;
+    --panel:#f0f0f0;--hover:#e8e8e8;--active:#e0e0e0;--line:#d8d8d8;
+    --text:#1a1a1a;--text-2:#4a4a4a;--text-3:#888888;--accent:#0a0a0a;
+    --ok:#2d8a4e;--warn:#b8860b;--bad:#c0392b;--blue:#2196f3;
+    --term-bg:#0d1117;--term-fg:#c9d1d9;--term-green:#7ee787;
+    --term-blue:#79c0ff;--term-yellow:#e3b341;
+  }
+  body.theme-dark{
+    --bg:#0a0a0a;--bg-2:#111;--bg-3:#1a1a1a;--ink:#f0f0f0;
+    --panel:#141414;--hover:#222;--active:#2a2a2a;--line:#2a2a2a;
+    --text:#e0e0e0;--text-2:#a0a0a0;--text-3:#666;--accent:#f0f0f0;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    font-family:'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif;
+    background:var(--bg-2);color:var(--text);overflow:hidden;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .frame{position:relative;flex-shrink:0}
+  .stage{
+    position:absolute;top:0;left:0;
+    display:flex;gap:18px;width:max-content;
+    transform-origin:top left;
+  }
+  .app{
+    width:1180px;height:720px;flex-shrink:0;
+    background:var(--bg);border:1px solid var(--line);
+    border-radius:14px;overflow:hidden;
+    display:flex;flex-direction:column;
+    box-shadow:0 8px 30px rgba(0,0,0,.12);
+  }
+
+  /* ===== 页面切换器 ===== */
+  .page-nav{
+    height:40px;flex-shrink:0;display:flex;align-items:center;
+    gap:2px;padding:0 8px;background:var(--bg-2);border-bottom:1px solid var(--line);
+  }
+  .page-btn{
+    padding:5px 12px;border:0;background:transparent;border-radius:5px;
+    font:500 12px 'Microsoft YaHei',sans-serif;color:var(--text-2);
+    cursor:pointer;transition:.15s;white-space:nowrap;
+  }
+  .page-btn:hover{background:var(--hover);color:var(--text)}
+  .page-btn.on{background:var(--active);color:var(--text);font-weight:600}
+
+  /* ===== 页面容器 ===== */
+  .pages{flex:1;position:relative;overflow:hidden}
+  .page{
+    position:absolute;top:0;left:0;width:100%;height:100%;
+    display:none;flex-direction:column;
+  }
+  .page.show{display:flex}
+
+  /* ========================================
+     页面1: 设置弹窗
+     ======================================== */
+  .settings-overlay{
+    position:absolute;top:0;left:0;width:100%;height:100%;
+    background:rgba(0,0,0,.4);display:none;z-index:10;
+    justify-content:center;align-items:center;
+  }
+  .settings-overlay.show{display:flex}
+  .settings-dialog{
+    width:820px;height:580px;background:var(--bg);border:1px solid var(--line);
+    border-radius:12px;display:flex;overflow:hidden;
+    box-shadow:0 20px 60px rgba(0,0,0,.25);
+  }
+  .settings-nav{
+    width:200px;flex-shrink:0;background:var(--bg-2);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;
+  }
+  .settings-nav-head{
+    padding:16px 16px 12px;font:700 13px 'Microsoft YaHei',sans-serif;
+    color:var(--text);border-bottom:1px solid var(--line);
+  }
+  .settings-nav-list{flex:1;overflow-y:auto;padding:8px}
+  .settings-nav-list::-webkit-scrollbar{width:4px}
+  .settings-nav-list::-webkit-scrollbar-thumb{background:var(--line);border-radius:2px}
+  .nav-item{
+    display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:7px;
+    cursor:pointer;font:500 13px 'Microsoft YaHei',sans-serif;
+    color:var(--text-2);transition:.12s;margin-bottom:2px;
+  }
+  .nav-item:hover{background:var(--hover);color:var(--text)}
+  .nav-item.on{background:var(--active);color:var(--text);font-weight:600}
+  .nav-item .nav-icon{font-size:14px;flex-shrink:0}
+
+  .settings-body{flex:1;overflow-y:auto;padding:24px}
+  .settings-body::-webkit-scrollbar{width:6px}
+  .settings-body::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+  .settings-section{display:none}
+  .settings-section.on{display:block}
+  .settings-section h3{font:700 16px 'Microsoft YaHei',sans-serif;color:var(--text);margin-bottom:16px}
+  .setting-row{
+    display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;
+    padding:12px 14px;border-radius:8px;background:var(--bg-2);border:1px solid var(--line);
+  }
+  .setting-row:hover{border-color:var(--text-3)}
+  .setting-label{
+    flex:1;min-width:0;
+  }
+  .setting-label .label-title{font-size:13px;color:var(--text);font-weight:500}
+  .setting-label .label-desc{font-size:11px;color:var(--text-3);margin-top:3px;line-height:1.5}
+  .setting-control{width:200px;flex-shrink:0}
+  .setting-input{
+    width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:6px;
+    background:var(--bg);color:var(--text);font-size:12px;
+    font-family:Consolas,monospace;outline:0;transition:.15s;
+  }
+  .setting-input:focus{border-color:var(--accent)}
+  .setting-select{
+    width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:6px;
+    background:var(--bg);color:var(--text);font-size:12px;outline:0;cursor:pointer;
+  }
+  .setting-warn{
+    margin-top:8px;padding:8px 10px;border-radius:6px;font-size:11px;
+    line-height:1.5;display:flex;align-items:flex-start;gap:6px;
+  }
+  .setting-warn.warn{background:#fff8e1;color:#8a6d00;border:1px solid #ffe082}
+  .setting-warn.error{background:#fce4ec;color:#c0392b;border:1px solid #f8bbd0}
+  .setting-warn.info{background:#e3f2fd;color:#1565c0;border:1px solid #90caf9}
+  .setting-warn .warn-icon{font-size:13px;flex-shrink:0;margin-top:1px}
+
+  .settings-foot{
+    height:52px;flex-shrink:0;display:flex;align-items:center;
+    justify-content:flex-end;gap:8px;padding:0 20px;
+    border-top:1px solid var(--line);background:var(--bg-2);
+  }
+  .sfoot-btn{
+    padding:8px 16px;border:1px solid var(--line);border-radius:6px;
+    background:var(--bg);color:var(--text-2);font:600 12px 'Microsoft YaHei',sans-serif;
+    cursor:pointer;transition:.15s;
+  }
+  .sfoot-btn:hover{color:var(--text);border-color:var(--text-3)}
+  .sfoot-btn.primary{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+  .sfoot-btn.primary:hover{opacity:.85}
+
+  /* ========================================
+     页面2: 终端日志
+     ======================================== */
+  .terminal{
+    flex:1;background:var(--term-bg);display:flex;flex-direction:column;
+  }
+  .term-tabs{
+    height:32px;flex-shrink:0;display:flex;align-items:center;
+    background:#010409;border-bottom:1px solid #30363d;
+  }
+  .term-tab{
+    padding:6px 16px;font:500 11px Consolas,monospace;color:#8b949e;
+    cursor:pointer;border-right:1px solid #21262d;transition:.12s;
+  }
+  .term-tab:hover{color:#c9d1d9;background:#161b22}
+  .term-tab.on{color:#58a6ff;background:#0d1117;border-bottom:2px solid #58a6ff}
+  .term-content{flex:1;overflow-y:auto;padding:12px 16px}
+  .term-content::-webkit-scrollbar{width:8px}
+  .term-content::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}
+  .term-line{
+    font-family:Consolas,'Courier New',monospace;font-size:12px;line-height:1.6;
+    color:var(--term-fg);white-space:pre-wrap;word-break:break-all;
+  }
+  .term-line .ts{color:#484f58;margin-right:8px}
+  .term-line .info{color:var(--term-blue)}
+  .term-line .warn{color:var(--term-yellow)}
+  .term-line .ok{color:var(--term-green)}
+  .term-line .err{color:#f85149}
+  .term-line .dim{color:#484f58}
+  .term-line .highlight{color:#d2a8ff}
+  .term-input-line{
+    flex-shrink:0;display:flex;align-items:center;gap:8px;
+    padding:10px 16px;background:#0d1117;border-top:1px solid #30363d;
+  }
+  .term-prompt{color:var(--term-green);font-family:Consolas,monospace;font-size:12px;font-weight:600}
+  .term-input{
+    flex:1;padding:6px 10px;background:transparent;border:none;
+    color:var(--term-fg);font-family:Consolas,monospace;font-size:12px;outline:0;
+  }
+  .term-input::placeholder{color:#484f58}
+
+  /* ========================================
+     页面3: 附件预览
+     ======================================== */
+  .chat-area{flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:16px}
+  .chat-area::-webkit-scrollbar{width:6px}
+  .chat-area::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+  .chat-msg{max-width:75%;font-size:13px;line-height:1.6}
+  .chat-msg .who{font-size:11px;font-weight:600;color:var(--text-3);margin-bottom:4px}
+  .chat-msg .bub{padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--bg-2);white-space:pre-wrap}
+  .chat-msg.me{align-self:flex-end}
+  .chat-msg.me .bub{background:var(--active);border-bottom-right-radius:4px}
+  .chat-msg.ai .bub{background:var(--bg-2);border-bottom-left-radius:4px}
+
+  .att-preview{
+    display:inline-flex;align-items:center;gap:10px;padding:8px 12px;
+    background:var(--bg-3);border:1px solid var(--line);border-radius:8px;
+    cursor:pointer;transition:.12s;margin-top:6px;
+  }
+  .att-preview:hover{border-color:var(--text-3);background:var(--hover)}
+  .att-icon{font-size:24px;flex-shrink:0}
+  .att-info{flex:1;min-width:0}
+  .att-name{font-size:12px;color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .att-size{font-size:10px;color:var(--text-3);margin-top:2px}
+  .att-thumb{
+    width:64px;height:64px;border-radius:6px;object-fit:cover;
+    border:1px solid var(--line);flex-shrink:0;
+  }
+  .att-tag{
+    display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;
+    background:var(--active);color:var(--text-3);margin-left:6px;
+  }
+  .chat-composer{
+    flex-shrink:0;padding:12px 16px;border-top:1px solid var(--line);
+    display:flex;gap:8px;align-items:center;
+  }
+  .composer-input{
+    flex:1;padding:10px 14px;background:var(--bg-2);border:1px solid var(--line);
+    border-radius:8px;color:var(--text);font:400 13px 'Microsoft YaHei',sans-serif;outline:0;
+  }
+  .composer-input:focus{border-color:var(--accent)}
+  .composer-input::placeholder{color:var(--text-3)}
+  .att-btn{
+    width:36px;height:36px;border-radius:8px;border:1px solid var(--line);
+    background:var(--bg);cursor:pointer;display:flex;align-items:center;
+    justify-content:center;font-size:16px;color:var(--text-3);transition:.15s;
+  }
+  .att-btn:hover{color:var(--text);border-color:var(--text-3);background:var(--hover)}
+  .send-btn{
+    padding:9px 18px;background:var(--accent);color:var(--bg);border:0;
+    border-radius:8px;font:600 13px 'Microsoft YaHei',sans-serif;cursor:pointer;transition:.15s;
+  }
+  .send-btn:hover{opacity:.85}
+
+  /* ===== 右侧说明 ===== */
+  .notes{
+    width:340px;height:720px;flex-shrink:0;overflow-y:auto;
+    background:var(--bg-2);border:1px solid var(--line);border-radius:14px;
+    padding:14px 16px;
+  }
+  .notes::-webkit-scrollbar{width:6px}
+  .notes::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+  .notes h2{font:700 15px 'Microsoft YaHei',sans-serif;color:var(--text);margin-bottom:4px}
+  .notes .sub{font-size:11.5px;color:var(--text-3);margin-bottom:12px;line-height:1.65}
+  .notes h4{font:700 12px 'Microsoft YaHei',sans-serif;color:var(--text);margin:10px 0 5px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+  .notes ul{list-style:none;font-size:11.5px;line-height:1.62;color:var(--text-2)}
+  .notes li{padding-left:15px;position:relative;margin-bottom:4px}
+  .notes li::before{content:'▸';position:absolute;left:2px;color:var(--accent)}
+  .notes li b{color:var(--accent);font-weight:600}
+
+  /* ===== 底部 ===== */
+  .status{
+    height:52px;flex-shrink:0;display:flex;align-items:center;
+    padding:0 12px;background:var(--bg-2);border-top:1px solid var(--line);
+  }
+  .status-left{display:flex;align-items:center;gap:10px}
+  .led{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 6px rgba(45,138,78,.4)}
+  .led.off{background:var(--text-3);box-shadow:none}
+  .st-txt{font-size:13px;color:var(--text-2);font-weight:500}
+  .st-url{font-family:Consolas,monospace;font-size:11px;color:var(--text-3);padding:3px 6px;background:var(--bg);border:1px solid var(--line);border-radius:4px}
+  .res-metrics{display:flex;gap:32px;margin-left:auto;align-items:center}
+  .metric{display:flex;align-items:center}
+  .metric-label{font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase;white-space:nowrap;margin-right:0;padding-right:0}
+  .metric-content{display:flex;align-items:center;gap:2px}
+  .metric .bar{width:120px;height:6px;background:var(--bg-3);border-radius:3px;overflow:hidden;border:1px solid var(--line)}
+  .metric .fill{height:100%;border-radius:3px;transition:width .4s}
+  .metric .fill.vram{background:linear-gradient(90deg,var(--ok),var(--warn))}
+  .metric .fill.ram{background:linear-gradient(90deg,#2196f3,#00bcd4)}
+  .metric span{font-family:Consolas,monospace;font-size:11px;color:var(--text);font-weight:500;min-width:70px}
+  .acts{display:flex;gap:6px;align-items:center;margin-left:12px}
+  .abtn{
+    padding:6px 12px;border:0;border-radius:5px;cursor:pointer;
+    font:600 12px 'Microsoft YaHei',sans-serif;transition:.15s;
+    display:flex;align-items:center;gap:4px;white-space:nowrap;
+  }
+  .abtn.ghost{background:var(--bg);color:var(--text-2);border:1px solid var(--line)}
+  .abtn.ghost:hover{color:var(--text);border-color:var(--text-3)}
+  .abtn.go{background:var(--accent);color:var(--bg)}
+  .abtn.go:hover{opacity:.85}
+  .abtn.no{background:var(--bg);color:var(--bad);border:1px solid var(--bad)}
+  .abtn.no:hover{background:var(--bad);color:var(--bg)}
+</style>
+</head>
+<body>
+
+<div class="frame" id="frame">
+<div class="stage" id="stage">
+
+<div class="app">
+
+  <!-- 页面切换器 -->
+  <div class="page-nav">
+    <button class="page-btn on" data-page="settings">设置弹窗</button>
+    <button class="page-btn" data-page="terminal">终端日志</button>
+    <button class="page-btn" data-page="attachments">附件预览</button>
+  </div>
+
+  <div class="pages">
+
+    <!-- ===== 页面1: 设置弹窗 ===== -->
+    <div class="page show" id="page-settings">
+      <div class="settings-overlay" id="settingsOverlay">
+        <div class="settings-dialog">
+          <div class="settings-nav">
+            <div class="settings-nav-head">⚙ 设置</div>
+            <div class="settings-nav-list">
+              <div class="nav-item on" data-tab="runtime"><span class="nav-icon">⚡</span>运行时</div>
+              <div class="nav-item" data-tab="model"><span class="nav-icon">🤖</span>模型</div>
+              <div class="nav-item" data-tab="sampling"><span class="nav-icon">🎲</span>采样</div>
+              <div class="nav-item" data-tab="gpu"><span class="nav-icon">🖥️</span>GPU</div>
+              <div class="nav-item" data-tab="advanced"><span class="nav-icon">⚙️</span>高级</div>
+              <div class="nav-item" data-tab="logs"><span class="nav-icon">📋</span>日志</div>
+            </div>
+          </div>
+
+          <div class="settings-body">
+            <!-- 运行时 -->
+            <div class="settings-section on" id="sec-runtime">
+              <h3>运行时配置</h3>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">llama-server 路径</div>
+                  <div class="label-desc">本地 llama.cpp 服务器可执行文件所在目录</div>
+                </div>
+                <div class="setting-control">
+                  <input type="text" class="setting-input" value="00_models_Base\llama.cpp\llama-server.exe" />
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">监听地址 (host)</div>
+                  <div class="label-desc">服务绑定地址。0.0.0.0 会暴露在局域网</div>
+                </div>
+                <div class="setting-control">
+                  <input type="text" class="setting-input" value="127.0.0.1" />
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">端口 (port)</div>
+                  <div class="label-desc">本地服务监听端口。默认 8080</div>
+                </div>
+                <div class="setting-control">
+                  <input type="number" class="setting-input" value="8080" />
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">上下文长度 (ctx_size)</div>
+                  <div class="label-desc">模型能记住的对话长度。设太高会 OOM</div>
+                </div>
+                <div class="setting-control">
+                  <input type="number" class="setting-input" value="32768" />
+                  <div class="setting-warn warn">
+                    <span class="warn-icon">⚠️</span>
+                    <span>默认 32768，超过 65536 可能显著增加内存占用</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">最大输出 (n_predict)</div>
+                  <div class="label-desc">单次生成最大 token 数。-1=按模型默认</div>
+                </div>
+                <div class="setting-control">
+                  <input type="number" class="setting-input" value="-1" />
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">请求超时 (request_timeout_ms)</div>
+                  <div class="label-desc">长回答和低速模型不应轻易超时</div>
+                </div>
+                <div class="setting-control">
+                  <input type="number" class="setting-input" value="600000" />
+                </div>
+              </div>
+            </div>
+
+            <!-- 模型 -->
+            <div class="settings-section" id="sec-model">
+              <h3>模型配置</h3>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">模型文件</div>
+                  <div class="label-desc">GGUF 格式模型文件路径</div>
+                </div>
+                <div class="setting-control">
+                  <input type="text" class="setting-input" value="01_models\Qwen3.6-35B-A3B-Heretic-APEX-I-Compact-Q4_K_M.gguf" />
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">视觉模型 (mmproj)</div>
+                  <div class="label-desc">用于图片理解。没有时上传只能预览</div>
+                </div>
+                <div class="setting-control">
+                  <input type="text" class="setting-input" value="" placeholder="可选" />
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">模板参数 (chat_template_kwargs)</div>
+                  <div class="label-desc">控制模板行为，如 Qwen 思考模式</div>
+                </div>
+                <div class="setting-control">
+                  <input type="text" class="setting-input" value='{"enable_thinking": true}' />
+                </div>
+              </div>
+            </div>
+
+            <!-- 采样 -->
+            <div class="settings-section" id="sec-sampling">
+              <h3>采样参数</h3>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">Temperature</div>
+                  <div class="label-desc">控制输出随机性。0.7=平衡，0=确定，1=创意</div>
+                </div>
+                <div class="setting-control">
+                  <input type="range" min="0" max="200" value="70" style="width:100%" />
+                  <input type="number" class="setting-input" value="0.70" style="margin-top:4px" />
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">Top-K</div>
+                  <div class="label-desc">只考虑概率最高的 K 个词</div>
+                </div>
+                <div class="setting-control">
+                  <input type="number" class="setting-input" value="40" />
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">Top-P</div>
+                  <div class="label-desc">只累积概率达到 P 的词</div>
+                </div>
+                <div class="setting-control">
+                  <input type="number" class="setting-input" value="0.95" />
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">重复惩罚 (repeat_penalty)</div>
+                  <div class="label-desc">&lt;1 鼓励不重复。循环回答时调低</div>
+                </div>
+                <div class="setting-control">
+                  <input type="number" class="setting-input" value="1.15" />
+                </div>
+              </div>
+            </div>
+
+            <!-- GPU -->
+            <div class="settings-section" id="sec-gpu">
+              <h3>GPU 配置</h3>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">GPU 层数 (gpu_layers)</div>
+                  <div class="label-desc">-1=全部，0=不进显存，1-100=具体层数</div>
+                </div>
+                <div class="setting-control">
+                  <input type="number" class="setting-input" value="-1" />
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">线程数 (threads)</div>
+                  <div class="label-desc">CPU 并行线程数。R9 7845HX (20核) 建议 16</div>
+                </div>
+                <div class="setting-control">
+                  <input type="number" class="setting-input" value="16" />
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">类型 K (type_k)</div>
+                  <div class="label-desc">KV 缓存 K 通道精度。f16 省一半显存</div>
+                </div>
+                <div class="setting-control">
+                  <select class="setting-select">
+                    <option value="f32">f32 (最高精度)</option>
+                    <option value="f16" selected>f16 (推荐)</option>
+                    <option value="q8_0">q8_0 (量化)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- 高级 -->
+            <div class="settings-section" id="sec-advanced">
+              <h3>高级选项</h3>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">Flash Attention</div>
+                  <div class="label-desc">加速注意力计算，节省显存。CUDA 13.3 支持</div>
+                </div>
+                <div class="setting-control">
+                  <select class="setting-select">
+                    <option value="on" selected>开</option>
+                    <option value="off">关</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">MMap 加载</div>
+                  <div class="label-desc">内存映射加载模型。开启加速，关闭防崩溃</div>
+                </div>
+                <div class="setting-control">
+                  <select class="setting-select">
+                    <option value="on" selected>开</option>
+                    <option value="off">关</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">额外参数 (extra_args)</div>
+                  <div class="label-desc">高级用户补充参数，用空格分隔</div>
+                </div>
+                <div class="setting-control">
+                  <input type="text" class="setting-input" value="" placeholder="可选" />
+                </div>
+              </div>
+            </div>
+
+            <!-- 日志 -->
+            <div class="settings-section" id="sec-logs">
+              <h3>日志设置</h3>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">日志级别</div>
+                  <div class="label-desc">终端日志显示级别</div>
+                </div>
+                <div class="setting-control">
+                  <select class="setting-select">
+                    <option value="info" selected>Info</option>
+                    <option value="debug">Debug</option>
+                    <option value="warn">Warn</option>
+                    <option value="error">Error</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">过滤流式 JSON</div>
+                  <div class="label-desc">隐藏流式输出中的 JSON 噪音</div>
+                </div>
+                <div class="setting-control">
+                  <select class="setting-select">
+                    <option value="on" selected>开</option>
+                    <option value="off">关</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-label">
+                  <div class="label-title">保留最近日志条数</div>
+                  <div class="label-desc">终端日志保留条数。过多会占内存</div>
+                </div>
+                <div class="setting-control">
+                  <input type="number" class="setting-input" value="500" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-foot">
+            <button class="sfoot-btn">取消</button>
+            <button class="sfoot-btn">重置默认</button>
+            <button class="sfoot-btn primary">保存并重启</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 页面2: 终端日志 ===== -->
+    <div class="page" id="page-terminal">
+      <div class="terminal">
+        <div class="term-tabs">
+          <div class="term-tab on">输出日志</div>
+          <div class="term-tab">完整日志</div>
+          <div class="term-tab">错误日志</div>
+        </div>
+        <div class="term-content" id="termContent">
+          <div class="term-line"><span class="ts">[08:21:01]</span><span class="info">INFO</span> llama.cpp b10816 · CUDA 13.3</div>
+          <div class="term-line"><span class="ts">[08:21:01]</span><span class="info">INFO</span> Loading model: Qwen3.6-35B-A3B-Heretic-APEX-I-Compact-Q4_K_M.gguf</div>
+          <div class="term-line"><span class="ts">[08:21:02]</span><span class="dim">... initializing layers (100/100) ...</span></div>
+          <div class="term-line"><span class="ts">[08:21:04]</span><span class="ok">OK</span> model loaded in 3.2s (35B params, Q4_K_M quantized)</div>
+          <div class="term-line"><span class="ts">[08:21:04]</span><span class="info">INFO</span> VRAM usage: 16.1 / 8.0 GB (partial offload)</div>
+          <div class="term-line"><span class="ts">[08:21:04]</span><span class="ok">OK</span> GPU layers: 85/100 offloaded</div>
+          <div class="term-line"><span class="ts">[08:21:04]</span><span class="info">INFO</span> Server starting on http://127.0.0.1:8080</div>
+          <div class="term-line"><span class="ts">[08:21:05]</span><span class="ok">OK</span> OpenAI API ready: http://127.0.0.1:8080/v1/chat/completions</div>
+          <div class="term-line"><span class="ts">[08:21:05]</span><span class="dim">⚠ ctx_size=32768 may use ~4.2GB RAM</span></div>
+          <div class="term-line"><span class="ts">[08:21:10]</span><span class="info">INFO</span> New request from 127.0.0.1 · model=qwen3.6-35b-a3b</div>
+          <div class="term-line"><span class="ts">[08:21:10]</span><span class="dim">... processing 1523 tokens (prompt: 213, cache: 1310) ...</span></div>
+          <div class="term-line"><span class="ts">[08:21:12]</span><span class="ok">OK</span> generation complete: 186 tokens · 93 tok/s · 2.1s</div>
+          <div class="term-line"><span class="ts">[08:21:12]</span><span class="info">INFO</span> Response sent · prompt: 213 · generated: 186 · total: 399</div>
+          <div class="term-line"><span class="ts">[08:21:15]</span><span class="warn">WARN</span> VRAM at 95% · consider reducing ctx_size or ngl</div>
+          <div class="term-line"><span class="ts">[08:21:20]</span><span class="info">INFO</span> New request from 127.0.0.1 · model=qwen3.6-35b-a3b</div>
+          <div class="term-line"><span class="ts">[08:21:20]</span><span class="dim">... processing 892 tokens (prompt: 127, cache: 765) ...</span></div>
+          <div class="term-line"><span class="ts">[08:21:22]</span><span class="ok">OK</span> generation complete: 245 tokens · 122 tok/s · 2.0s</div>
+          <div class="term-line"><span class="ts">[08:21:22]</span><span class="info">INFO</span> Response sent · prompt: 127 · generated: 245 · total: 372</div>
+        </div>
+        <div class="term-input-line">
+          <span class="term-prompt">❯</span>
+          <input type="text" class="term-input" placeholder="输入日志过滤命令 (e.g., grep, clear)..." />
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 页面3: 附件预览 ===== -->
+    <div class="page" id="page-attachments">
+      <div class="chat-area">
+        <!-- 用户消息 + 附件 -->
+        <div class="chat-msg me">
+          <div class="who">你</div>
+          <div class="bub">帮我看一下这张架构图，分析它的优缺点。</div>
+          <div class="att-preview">
+            <div class="att-icon">🖼️</div>
+            <div class="att-info">
+              <div class="att-name">system_architecture_v3.png</div>
+              <div class="att-size">2.4 MB · PNG</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI 回复 -->
+        <div class="chat-msg ai">
+          <div class="who">Qwen3.6-35B-A3B</div>
+          <div class="bub">我看到这张架构图包含了几个核心组件：
+
+1. **前端层** - 用户界面和交互
+2. **API 网关** - 路由和认证
+3. **服务层** - 业务逻辑处理
+4. **数据层** - 数据库和缓存
+
+整体设计采用了分层架构，职责清晰。不过有几个问题：
+
+- API 网关是单点故障
+- 服务层之间耦合度较高
+- 缺少监控和日志收集
+
+需要我详细展开某个部分吗？</div>
+        </div>
+
+        <!-- 用户消息 + 文件 -->
+        <div class="chat-msg me">
+          <div class="who">你</div>
+          <div class="bub">这是我的项目配置文件，帮我看下有没有问题。</div>
+          <div class="att-preview">
+            <div class="att-icon">📄</div>
+            <div class="att-info">
+              <div class="att-name">config.toml</div>
+              <div class="att-size">12 KB · TOML</div>
+            </div>
+            <span class="att-tag">已分析</span>
+          </div>
+        </div>
+
+        <!-- AI 回复 -->
+        <div class="chat-msg ai">
+          <div class="who">Qwen3.6-35B-A3B</div>
+          <div class="bub">查看了配置文件，发现以下问题：
+
+1. `ctx_size = 65536` 偏高，建议改为 32768
+2. `host = "0.0.0.0"` 会暴露到局域网
+3. 缺少 `mmproj` 路径定义
+
+需要我帮你修正这些配置吗？</div>
+        </div>
+
+        <!-- 附件输入框 -->
+        <div class="chat-composer">
+          <button class="att-btn" title="添加附件">📎</button>
+          <input type="text" class="composer-input" placeholder="输入消息… 拖拽文件到此处或点击 📎 添加附件" />
+          <button class="send-btn">发送</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 底部状态条 -->
+  <div class="status">
+    <div class="status-left">
+      <span class="led"></span>
+      <span class="st-txt">运行中</span>
+      <span class="st-url">http://127.0.0.1:8080</span>
+    </div>
+    <div class="res-metrics">
+      <div class="metric">
+        <span class="metric-label">VRAM</span>
+        <div class="metric-content">
+          <div class="bar"><div class="fill vram" style="width:95%"></div></div>
+          <span>16.1 / 8.0 GB</span>
+        </div>
+      </div>
+      <div class="metric">
+        <span class="metric-label">RAM</span>
+        <div class="metric-content">
+          <div class="bar"><div class="fill ram" style="width:14%"></div></div>
+          <span>4.3 / 32.0 GB</span>
+        </div>
+      </div>
+    </div>
+    <div class="acts">
+      <button class="abtn ghost">设置</button>
+      <button class="abtn no">■ 停止</button>
+      <button class="abtn ghost">💾 保存</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- 右侧说明 -->
+<div class="notes">
+  <h2>多页面原型 v1</h2>
+  <div class="sub">切换顶部 Tab 查看不同页面</div>
+
+  <h4>页面说明</h4>
+  <ul>
+    <li><b>设置弹窗</b> - 左侧导航+右侧表单，6个分类</li>
+    <li><b>终端日志</b> - 黑底等宽字体，接近真实 Terminal</li>
+    <li><b>附件预览</b> - 图片/文件轻量气泡</li>
+  </ul>
+
+  <h4>试试交互</h4>
+  <ul>
+    <li>顶部 Tab 切换页面</li>
+    <li>设置弹窗 → 左侧导航切换分类</li>
+    <li>终端日志 → 标签切换日志类型</li>
+    <li>附件预览 → 查看气泡样式</li>
+  </ul>
+</div>
+
+</div><!-- /stage -->
+</div><!-- /frame -->
+
+<script>
+  // ===== 页面切换 =====
+  document.querySelectorAll('.page-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.page-btn').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('show'));
+      document.getElementById('page-' + btn.dataset.page).classList.add('show');
+    });
+  });
+
+  // ===== 设置弹窗导航 =====
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('on'));
+      item.classList.add('on');
+      document.querySelectorAll('.settings-section').forEach(s => s.classList.remove('on'));
+      document.getElementById('sec-' + item.dataset.tab).classList.add('on');
+    });
+  });
+
+  // ===== 终端日志切换 =====
+  document.querySelectorAll('.term-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.term-tab').forEach(t => t.classList.remove('on'));
+      tab.classList.add('on');
+    });
+  });
+
+  // ===== 自动缩放 =====
+  const frame = document.getElementById('frame');
+  const stage = document.getElementById('stage');
+  function fit(){
+    const w = stage.offsetWidth, h = stage.offsetHeight;
+    const availW = window.innerWidth - 28, availH = window.innerHeight - 28;
+    const sc = Math.min(1, availW / w, availH / h);
+    stage.style.transform = 'scale(' + sc + ')';
+    frame.style.width = (w * sc) + 'px';
+    frame.style.height = (h * sc) + 'px';
+  }
+  fit();
+  window.addEventListener('resize', fit);
+</script>
+</body>
+</html>
