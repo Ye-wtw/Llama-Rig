@@ -13,6 +13,13 @@ jobs:
     name: Build Windows portable exe
     runs-on: windows-latest
 
+    # 兜底：显式指定官方镜像，不走任何区域镜像。
+    # runner 在国外，若照仓库里的 .npmrc 去国内镜像拉 142MB 的 Electron 包，
+    # 会出现「zip: not a valid zip file」这类下载损坏（v0.8.1 构建就挂在这）。
+    env:
+      ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+      ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
